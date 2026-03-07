@@ -7,8 +7,10 @@ from cryptography.fernet import Fernet
 from werkzeug.security import generate_password_hash, check_password_hash
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from keep_alive import keep_alive
 import sys
 
+keep_alive()
 sys.stdout.reconfigure(encoding='utf-8')
 # ==========================================
 # 1. SETUP & SECURITY
@@ -297,4 +299,5 @@ if __name__ == "__main__":
     if not FERNET_KEY:
         print("🚨 CRITICAL: Missing FERNET_KEY in .env file! Codes cannot be encrypted.")
     else:
+
         asyncio.run(main())
