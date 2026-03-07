@@ -56,7 +56,7 @@ def get_connection():
 def verify_login(username, password, required_role):
     """Checks DB for user and verifies hashed password."""
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT pass, role FROM users WHERE username = %s", (username,))
+        cur.execute(f"SELECT pass, role FROM users WHERE username = '{username}'")
         user = cur.fetchone()
         if user:
             db_hash, role = user
@@ -301,3 +301,4 @@ if __name__ == "__main__":
     else:
 
         asyncio.run(main())
+
