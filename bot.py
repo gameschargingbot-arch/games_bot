@@ -365,8 +365,10 @@ async def generate_excel(update:Update,context:ContextTypes.DEFAULT_TYPE):
 async def main():
 
 
-    admin_app = ApplicationBuilder().token(ADMIN_TOKEN).build()
-    user_app = ApplicationBuilder().token(USER_TOKEN).build()
+    await asyncio.gather(
+    admin_app.run_polling(),
+    user_app.run_polling()
+    )
 
     admin_app.add_handler(CommandHandler("login",admin_login))
     admin_app.add_handler(CallbackQueryHandler(export_codes,pattern="export"))
@@ -391,3 +393,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
