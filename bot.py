@@ -364,33 +364,27 @@ async def generate_excel(update:Update,context:ContextTypes.DEFAULT_TYPE):
 
 async def main():
 
+    create_default_admin()
 
-    await asyncio.gather(
-    admin_app.run_polling(),
-    user_app.run_polling()
-    )
+    admin_app = ApplicationBuilder().token(ADMIN_TOKEN).build()
+    user_app = ApplicationBuilder().token(USER_TOKEN).build()
 
-    admin_app.add_handler(CommandHandler("login",admin_login))
-    admin_app.add_handler(CallbackQueryHandler(export_codes,pattern="export"))
-    admin_app.add_handler(CallbackQueryHandler(generate_excel,pattern="exp_"))
+    admin_app.add_handler(CommandHandler("login", admin_login))
+    admin_app.add_handler(CallbackQueryHandler(export_codes, pattern="export"))
+    admin_app.add_handler(CallbackQueryHandler(generate_excel, pattern="exp_"))
 
-    user_app.add_handler(CommandHandler("start",user_start))
-    user_app.add_handler(CommandHandler("login",user_login))
-    user_app.add_handler(CommandHandler("menu",user_menu))
+    user_app.add_handler(CommandHandler("start", user_start))
+    user_app.add_handler(CommandHandler("login", user_login))
+    user_app.add_handler(CommandHandler("menu", user_menu))
     user_app.add_handler(CallbackQueryHandler(user_callback))
 
-    await admin_app.initialize()
-    await admin_app.start()
-    await admin_app.updater.start_polling()
-
-    await user_app.initialize()
-    await user_app.start()
-    await user_app.updater.start_polling()
-
-    while True:
-        await asyncio.sleep(3600)
+    await asyncio.gather(
+        admin_app.run_polling(),
+        user_app.run_polling()
+    )
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
