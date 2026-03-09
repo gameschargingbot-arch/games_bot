@@ -376,26 +376,25 @@ async def main():
     user_app.add_handler(CommandHandler("menu", user_menu))
     user_app.add_handler(CallbackQueryHandler(user_callback))
 
+    # Boot them up
     await admin_app.initialize()
-    await user_app.initialize()
-
     await admin_app.start()
+    await admin_app.updater.start_polling()
+    print("🟢 Admin Bot Started!")
+
+    await user_app.initialize()
     await user_app.start()
+    await user_app.updater.start_polling()
+    print("🟢 User Bot Started!")
 
-    print("Admin bot started")
-    print("User bot started")
-
-    await admin_app.bot.initialize()
-    await user_app.bot.initialize()
-
-    await asyncio.gather(
-        admin_app.updater.start_polling(),
-        user_app.updater.start_polling()
-    )
+    print("🚀 System Online! Press Ctrl+C to stop.")
+    while True:
+        await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
