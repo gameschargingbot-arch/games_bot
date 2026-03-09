@@ -5,3 +5,5 @@ cryptography
 Werkzeug
 pandas
 openpyxl
+requests
+Flask
