@@ -364,8 +364,6 @@ async def generate_excel(update:Update,context:ContextTypes.DEFAULT_TYPE):
 
 async def main():
 
-    create_default_admin()
-
     admin_app = ApplicationBuilder().token(ADMIN_TOKEN).build()
     user_app = ApplicationBuilder().token(USER_TOKEN).build()
 
@@ -386,5 +384,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
