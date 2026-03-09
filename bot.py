@@ -362,40 +362,37 @@ async def generate_excel(update:Update,context:ContextTypes.DEFAULT_TYPE):
 # MAIN
 # ======================================
 
-async def main():
-
+def start_admin():
     admin_app = ApplicationBuilder().token(ADMIN_TOKEN).build()
-    user_app = ApplicationBuilder().token(USER_TOKEN).build()
 
     admin_app.add_handler(CommandHandler("login", admin_login))
     admin_app.add_handler(CallbackQueryHandler(export_codes, pattern="export"))
     admin_app.add_handler(CallbackQueryHandler(generate_excel, pattern="exp_"))
+
+    print("Admin bot running...")
+    admin_app.run_polling()
+
+
+def start_user():
+    user_app = ApplicationBuilder().token(USER_TOKEN).build()
 
     user_app.add_handler(CommandHandler("start", user_start))
     user_app.add_handler(CommandHandler("login", user_login))
     user_app.add_handler(CommandHandler("menu", user_menu))
     user_app.add_handler(CallbackQueryHandler(user_callback))
 
-    await admin_app.initialize()
-    await user_app.initialize()
-
-    await admin_app.start()
-    await user_app.start()
-
-    print("Admin bot started")
-    print("User bot started")
-
-    await admin_app.bot.initialize()
-    await user_app.bot.initialize()
-
-    await asyncio.gather(
-        admin_app.updater.start_polling(),
-        user_app.updater.start_polling()
-    )
+    print("User bot running...")
+    user_app.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import threading
+
+    keep_alive()
+
+    threading.Thread(target=start_admin).start()
+    threading.Thread(target=start_user).start()
+
 
 
 
