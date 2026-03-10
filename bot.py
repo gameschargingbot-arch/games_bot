@@ -197,11 +197,7 @@ async def start_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return USER_MAIN
     await update.message.reply_text(f"❌ غير مسجل. ID: `{update.effective_user.id}`", parse_mode="Markdown")
     return ConversationHandler.END
-
-async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    conv = ConversationHandler(
+conv = ConversationHandler(
         entry_points=[CommandHandler("start", start_auth)],
         states={
             ADMIN_MAIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler)],
@@ -220,21 +216,18 @@ async def main():
         },
         fallbacks=[CommandHandler("start", start_auth)]
     )
+async def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(conv)
-    
-    # Python-telegram-bot manual lifecycle (prevents loop errors)
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    
-    print("🚀 All systems online. Bot & Health Check active.")
-    
-    # Stay alive forever
-    await asyncio.Event().wait()
 
+    print("🚀 Bot running")
+
+    await app.run_polling()
+    
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
+
