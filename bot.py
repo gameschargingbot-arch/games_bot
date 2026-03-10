@@ -7,12 +7,13 @@ import sys
 from datetime import datetime
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
+from keep_live import keep_live
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, 
     ContextTypes, ConversationHandler, filters
 )
-
+keep_live()
 # ======================================
 # CONFIG & ENV
 # ======================================
@@ -232,3 +233,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
+
