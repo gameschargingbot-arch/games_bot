@@ -4,16 +4,35 @@ import psycopg2
 import hashlib
 import pandas as pd
 import sys
+import threading
+import http.server
+import socketserver
 from datetime import datetime
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
-from keep_live import keep_live
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, 
     ContextTypes, ConversationHandler, filters
 )
-keep_live()
+
+# ======================================
+# RENDER KEEP-ALIVE (HEALTH CHECK)
+# ======================================
+def run_health_check():
+    """Starts a tiny server to tell Render 'I am alive'"""
+    # Render provides the port in an environment variable
+    port = int(os.environ.get("PORT", 10000))
+    handler = http.server.SimpleHTTPRequestHandler
+    
+    # This prevents the "Port scan timeout" error
+    with socketserver.TCPServer(("", port), handler) as httpd:
+        print(f"✅ Health Check Server active on port {port}")
+        httpd.serve_forever()
+
+# Start the server in the background immediately
+threading.Thread(target=run_health_check, daemon=True).start()
+
 # ======================================
 # CONFIG & ENV
 # ======================================
@@ -76,13 +95,13 @@ async def admin_stats_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADMIN_MAIN
         
     cats.append(['⬅️ عودة للقائمة الرئيسية'])
-    await update.message.reply_text("📊 اختر القسم لعرض إحصائياته:", reply_markup=ReplyKeyboardMarkup(cats, resize_keyboard=True))
+    await update.message.reply_text("📊 اختر القسم للإحصائيات:", reply_markup=ReplyKeyboardMarkup(cats, resize_keyboard=True))
     return ADMIN_STATS_CAT
 
 async def admin_stats_cat_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cat_name = update.message.text
     if cat_name == '⬅️ عودة للقائمة الرئيسية':
-        await update.message.reply_text("القائمة الرئيسية", reply_markup=kb_admin_main())
+        await update.message.reply_text("الرئيسية", reply_markup=kb_admin_main())
         return ADMIN_MAIN
 
     with get_connection() as conn, conn.cursor() as cur:
@@ -91,10 +110,9 @@ async def admin_stats_cat_selection(update: Update, context: ContextTypes.DEFAUL
         
         if subs:
             subs.append(['⬅️ عودة'])
-            await update.message.reply_text(f"📁 قسم {cat_name}: اختر النوع الفرعي", reply_markup=ReplyKeyboardMarkup(subs, resize_keyboard=True))
+            await update.message.reply_text(f"📁 قسم {cat_name}: النوع الفرعي", reply_markup=ReplyKeyboardMarkup(subs, resize_keyboard=True))
             return ADMIN_STATS_SUB
-        else:
-            return await show_final_stats(update, cat_name)
+        return await show_final_stats(update, cat_name)
 
 async def show_final_stats(update: Update, target):
     with get_connection() as conn, conn.cursor() as cur:
@@ -103,12 +121,12 @@ async def show_final_stats(update: Update, target):
         cur.execute("SELECT COUNT(*) FROM code WHERE name=%s AND is_active=FALSE", (target,))
         used = cur.fetchone()[0]
         
-    msg = f"📊 **إحصائيات {target}**\n\n✅ متاح: `{unused}`\n❌ مستخدم: `{used}`\n🔢 الإجمالي: `{unused + used}`"
+    msg = f"📊 **إحصائيات {target}**\n\n✅ متاح: `{unused}`\n❌ مستخدم: `{used}`"
     await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=kb_admin_main())
     return ADMIN_MAIN
 
 # ======================================
-# ADMIN: ACTIONS
+# ADMIN: HANDLERS
 # ======================================
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -181,7 +199,7 @@ async def redeem_code(update, target):
     return USER_MAIN
 
 # ======================================
-# AUTH & MAIN
+# CORE RUNNER
 # ======================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_role_by_id(update.effective_user.id)
@@ -219,18 +237,11 @@ async def main():
 
     app.add_handler(conv)
     
-    # --- MANUAL LIFECYCLE FOR PYTHON 3.14/RENDER ---
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    print("🚀 Bot is running...")
-    
-    # Stay alive forever
+    print("🚀 Bot and Health Check active...")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
-
+    asyncio.run(main())
