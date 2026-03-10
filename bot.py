@@ -11,27 +11,13 @@ from datetime import datetime
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from keep_alive import keep_alive
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, 
     ContextTypes, ConversationHandler, filters
 )
 
-# ======================================
-# RENDER KEEP-ALIVE (HEALTH CHECK)
-# ======================================
-def run_health_check():
-    """Starts a tiny server to tell Render 'I am alive'"""
-    # Render provides the port in an environment variable
-    port = int(os.environ.get("PORT", 10000))
-    handler = http.server.SimpleHTTPRequestHandler
-    
-    # This prevents the "Port scan timeout" error
-    with socketserver.TCPServer(("", port), handler) as httpd:
-        print(f"✅ Health Check Server active on port {port}")
-        httpd.serve_forever()
-
-# Start the server in the background immediately
-threading.Thread(target=run_health_check, daemon=True).start()
+keep_alive()
 
 # ======================================
 # CONFIG & ENV
@@ -201,7 +187,7 @@ async def redeem_code(update, target):
 # ======================================
 # CORE RUNNER
 # ======================================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role = get_role_by_id(update.effective_user.id)
     if role == "admin":
         await update.message.reply_text("👑 لوحة المسؤول", reply_markup=kb_admin_main())
@@ -216,7 +202,7 @@ async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[CommandHandler("start", start_auth)],
         states={
             ADMIN_MAIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler)],
             ADMIN_STATS_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_stats_cat_selection)],
@@ -232,16 +218,23 @@ async def main():
             USER_SELECT_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_cat_selection)],
             USER_SELECT_SUB: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u,c: redeem_code(u, u.message.text) if 'عودة' not in u.message.text else user_main_handler(u,c))],
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=[CommandHandler("start", start_auth)]
     )
 
     app.add_handler(conv)
     
+    # Python-telegram-bot manual lifecycle (prevents loop errors)
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    print("🚀 Bot and Health Check active...")
+    
+    print("🚀 All systems online. Bot & Health Check active.")
+    
+    # Stay alive forever
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
