@@ -51,15 +51,18 @@ def get_connection():
     return psycopg2.connect(safe_url)
 
 def verify_login(username, password, role):
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT pass, role FROM users WHERE username=%s", (username,))
-        user = cur.fetchone()
-        if user and check_password_hash(user[0], password) and user[1] == role:
-            return True
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pass, role FROM users WHERE username=%s", (username,))
+            user = cur.fetchone()
+            if user and check_password_hash(user[0], password) and user[1] == role:
+                return True
+    except:
+        return False
     return False
 
 # ======================================
-# KEYBOARDS
+# KEYBOARDS (The Menu Interface)
 # ======================================
 def get_admin_main_keyboard():
     return ReplyKeyboardMarkup([
@@ -74,6 +77,12 @@ def get_user_mgmt_keyboard():
         ['❌ حذف مستخدم', '⬅️ عودة للقائمة الرئيسية']
     ], resize_keyboard=True)
 
+def get_add_code_keyboard():
+    return ReplyKeyboardMarkup([
+        ['بدون قسم فرعي', 'مع قسم فرعي'],
+        ['⬅️ عودة للقائمة الرئيسية']
+    ], resize_keyboard=True)
+
 # ======================================
 # SHARED LOGIN FLOW
 # ======================================
@@ -86,44 +95,124 @@ async def login_user_step(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔑 أدخل كلمة المرور:")
     return L_PASS
 
-# ======================================
-# ADMIN: USER MANAGEMENT LOGIC
-# ======================================
 async def admin_auth_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = context.user_data.get('tmp_user')
     password = update.message.text
     if verify_login(username, password, "admin"):
         await update.message.reply_text("✅ تم الدخول للمسؤول", reply_markup=get_admin_main_keyboard())
         return ADMIN_MAIN
-    await update.message.reply_text("❌ بيانات خاطئة.")
+    await update.message.reply_text("❌ بيانات خاطئة. استخدم /start للمحاولة مجدداً.")
     return ConversationHandler.END
 
+# ======================================
+# ADMIN: MAIN MENU HANDLER
+# ======================================
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+
     if text == '📊 الاحصائيات':
         with get_connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM code")
-            await update.message.reply_text(f"📈 إجمالي الأكواد: {cur.fetchone()[0]}")
-    
+            cur.execute("SELECT COUNT(*) FROM code WHERE is_active=TRUE")
+            active = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM code WHERE is_active=FALSE")
+            used = cur.fetchone()[0]
+            await update.message.reply_text(f"📈 إحصائيات النظام:\nالأكواد المتاحة: {active}\nالأكواد المستخدمة: {used}")
+            return ADMIN_MAIN
+
+    elif text == '➕ اضافة اكواد':
+        await update.message.reply_text("اختر طريقة الإضافة:", reply_markup=get_add_code_keyboard())
+        return ADD_CHOICE
+
     elif text == '👤 إدارة المستخدمين':
         await update.message.reply_text("👥 قائمة إدارة المستخدمين:", reply_markup=get_user_mgmt_keyboard())
         return USER_MGMT_MENU
-    
-    elif text == '➕ اضافة اكواد':
-        kb = ReplyKeyboardMarkup([['بدون قسم فرعي', 'مع قسم فرعي'], ['⬅️ عودة']], resize_keyboard=True)
-        await update.message.reply_text("اختر طريقة الإضافة:", reply_markup=kb)
-        return ADD_CHOICE
-    
+
+    elif text == '📥 تصدير Excel':
+        await update.message.reply_text("جاري استخراج البيانات...")
+        with get_connection() as conn:
+            df = pd.read_sql("SELECT name, code, is_active FROM code", conn)
+        df['code'] = df['code'].apply(lambda x: cipher_suite.decrypt(x.encode()).decode() if x else "")
+        df.to_excel("codes_export.xlsx", index=False)
+        await update.message.reply_document(document=open("codes_export.xlsx", "rb"))
+        return ADMIN_MAIN
+
+    elif text == '🚪 تسجيل خروج':
+        await update.message.reply_text("تم تسجيل الخروج.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
     return ADMIN_MAIN
 
-# User Management Sub-actions
+# ======================================
+# ADMIN: CODE ADDITION LOGIC
+# ======================================
+async def add_choice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
+    if choice == 'بدون قسم فرعي':
+        context.user_data['add_mode'] = 'single'
+        await update.message.reply_text("أدخل اسم القسم (مثال: NETFLIX):", reply_markup=ReplyKeyboardRemove())
+        return ADD_CAT
+    elif choice == 'مع قسم فرعي':
+        context.user_data['add_mode'] = 'sub'
+        await update.message.reply_text("أدخل اسم القسم الرئيسي (مثال: GAMES):", reply_markup=ReplyKeyboardRemove())
+        return ADD_CAT
+    elif choice == '⬅️ عودة للقائمة الرئيسية':
+        await update.message.reply_text("القائمة الرئيسية:", reply_markup=get_admin_main_keyboard())
+        return ADMIN_MAIN
+
+async def add_cat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['main_cat'] = update.message.text
+    if context.user_data['add_mode'] == 'sub':
+        await update.message.reply_text("أدخل اسم القسم الفرعي (مثال: PUBG):")
+        return ADD_SUB
+    await update.message.reply_text("أرسل الأكواد الآن (كود واحد في كل سطر):")
+    return ADD_CODES
+
+async def add_sub_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['sub_cat'] = update.message.text
+    await update.message.reply_text(f"أرسل الأكواد لقسم {context.user_data['sub_cat']} الآن:")
+    return ADD_CODES
+
+async def save_codes_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw_codes = update.message.text.split('\n')
+    main_name = context.user_data['main_cat']
+    sub_name = context.user_data.get('sub_cat')
+
+    with get_connection() as conn, conn.cursor() as cur:
+        # Check if parent exists or create it
+        cur.execute("SELECT id FROM code WHERE name=%s AND parent_id IS NULL", (main_name,))
+        parent = cur.fetchone()
+        if not parent:
+            cur.execute("INSERT INTO code (name, is_active) VALUES (%s, TRUE) RETURNING id", (main_name,))
+            parent_id = cur.fetchone()[0]
+        else:
+            parent_id = parent[0]
+
+        # Determine target name and parent association
+        target_name = sub_name if sub_name else main_name
+        final_parent = parent_id if sub_name else None
+
+        for c in raw_codes:
+            if c.strip():
+                enc = cipher_suite.encrypt(c.strip().encode()).decode()
+                cur.execute(
+                    "INSERT INTO code (name, code, is_active, parent_id) VALUES (%s, %s, TRUE, %s)",
+                    (target_name, enc, final_parent)
+                )
+        conn.commit()
+
+    await update.message.reply_text(f"✅ تم حفظ الأكواد بنجاح في {target_name}", reply_markup=get_admin_main_keyboard())
+    return ADMIN_MAIN
+
+# ======================================
+# ADMIN: USER MANAGEMENT LOGIC
+# ======================================
 async def user_mgmt_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text == '➕ إضافة مستخدم':
         await update.message.reply_text("أدخل اسم المستخدم الجديد:", reply_markup=ReplyKeyboardRemove())
         return ADD_USER_NAME
     elif text == '🔑 تغيير كلمة مرور':
-        await update.message.reply_text("أدخل اسم المستخدم المراد تغيير كلمته:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("أدخل اسم المستخدم المراد تعديله:", reply_markup=ReplyKeyboardRemove())
         return CHANGE_PASS_NAME
     elif text == '❌ حذف مستخدم':
         await update.message.reply_text("أدخل اسم المستخدم المراد حذفه:", reply_markup=ReplyKeyboardRemove())
@@ -131,47 +220,45 @@ async def user_mgmt_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == '⬅️ عودة للقائمة الرئيسية':
         await update.message.reply_text("القائمة الرئيسية:", reply_markup=get_admin_main_keyboard())
         return ADMIN_MAIN
+    return USER_MGMT_MENU
 
-# Action Logic: Add User
 async def add_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['new_target_user'] = update.message.text
-    await update.message.reply_text("أدخل كلمة المرور للمستخدم الجديد:")
+    context.user_data['new_target'] = update.message.text
+    await update.message.reply_text("أدخل كلمة المرور الجديدة:")
     return ADD_USER_PASS
 
 async def add_user_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uname = context.user_data['new_target_user']
+    uname = context.user_data['new_target']
     pword = generate_password_hash(update.message.text)
     try:
         with get_connection() as conn, conn.cursor() as cur:
             cur.execute("INSERT INTO users (username, pass, role) VALUES (%s, %s, 'user')", (uname, pword))
             conn.commit()
-        await update.message.reply_text(f"✅ تم إضافة المستخدم {uname}", reply_markup=get_user_mgmt_keyboard())
-    except Exception as e:
-        await update.message.reply_text("❌ حدث خطأ (ربما المستخدم موجود بالفعل).", reply_markup=get_user_mgmt_keyboard())
+        await update.message.reply_text("✅ تمت إضافة المستخدم", reply_markup=get_user_mgmt_keyboard())
+    except:
+        await update.message.reply_text("❌ خطأ: الاسم موجود مسبقاً", reply_markup=get_user_mgmt_keyboard())
     return USER_MGMT_MENU
 
-# Action Logic: Remove User
+async def change_pass_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['pass_target'] = update.message.text
+    await update.message.reply_text("أدخل كلمة المرور الجديدة:")
+    return CHANGE_PASS_VAL
+
+async def change_pass_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uname = context.user_data['pass_target']
+    pword = generate_password_hash(update.message.text)
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE users SET pass=%s WHERE username=%s", (pword, uname))
+        conn.commit()
+    await update.message.reply_text("🔐 تم تغيير كلمة المرور", reply_markup=get_user_mgmt_keyboard())
+    return USER_MGMT_MENU
+
 async def remove_user_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uname = update.message.text
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("DELETE FROM users WHERE username=%s AND role='user'", (uname,))
         conn.commit()
-    await update.message.reply_text(f"🗑️ تم حذف المستخدم {uname} (إذا كان موجوداً).", reply_markup=get_user_mgmt_keyboard())
-    return USER_MGMT_MENU
-
-# Action Logic: Change Password
-async def change_pass_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['target_pass_user'] = update.message.text
-    await update.message.reply_text("أدخل كلمة المرور الجديدة:")
-    return CHANGE_PASS_VAL
-
-async def change_pass_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uname = context.user_data['target_pass_user']
-    new_pword = generate_password_hash(update.message.text)
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("UPDATE users SET pass=%s WHERE username=%s", (new_pword, uname))
-        conn.commit()
-    await update.message.reply_text(f"🔐 تم تحديث كلمة المرور لـ {uname}", reply_markup=get_user_mgmt_keyboard())
+    await update.message.reply_text(f"🗑️ تم حذف {uname}", reply_markup=get_user_mgmt_keyboard())
     return USER_MGMT_MENU
 
 # ======================================
@@ -187,16 +274,17 @@ async def main():
             L_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_auth_check)],
             ADMIN_MAIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler)],
             USER_MGMT_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_mgmt_router)],
-            # Add User States
+            ADD_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_choice_handler)],
+            # Addition steps
+            ADD_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_cat_handler)],
+            ADD_SUB: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_sub_handler)],
+            ADD_CODES: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_codes_handler)],
+            # User mgmt steps
             ADD_USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_user_name)],
             ADD_USER_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_user_final)],
-            # Change Pass States
             CHANGE_PASS_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_pass_name)],
             CHANGE_PASS_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, change_pass_final)],
-            # Remove User States
             REMOVE_USER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, remove_user_final)],
-            # Code Adding states (from previous prompt)
-            ADD_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: ADMIN_MAIN)], # Simplified placeholder
         },
         fallbacks=[CommandHandler("start", start)]
     )
@@ -205,7 +293,7 @@ async def main():
     
     await admin_app.initialize()
     await admin_app.start()
-    print("Admin Bot with User Management is running...")
+    print("Admin Bot is fully operational with all menus.")
     await admin_app.updater.start_polling()
     await asyncio.Event().wait()
 
