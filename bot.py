@@ -17,8 +17,6 @@ from telegram.ext import (
     ContextTypes, ConversationHandler, filters
 )
 
-keep_alive()
-
 # ======================================
 # CONFIG & ENV
 # ======================================
@@ -216,18 +214,15 @@ conv = ConversationHandler(
         },
         fallbacks=[CommandHandler("start", start_auth)]
     )
-async def main():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(conv)
 
     print("🚀 Bot running")
+    app.run_polling()
 
-    await app.run_polling()
-    
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+    keep_alive()
+    main()
+
 
